@@ -10,6 +10,8 @@ from claude_agent_sdk import (
     TextBlock, UserMessage,
 )
 
+api_key = "example"
+
 # Загружаем .env из директории Python-файла
 from dotenv import load_dotenv
 
@@ -42,6 +44,9 @@ claude_options = ClaudeAgentOptions(
     add_dirs=[],
     # Программно определенные агенты
     agents=None,
+    env={
+        "ANTHROPIC_API_KEY": api_key,
+    },
 )
 
 
