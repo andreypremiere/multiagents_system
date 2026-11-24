@@ -64,6 +64,3 @@ def decode_access_token(token: str) -> dict[str, Any]:
         settings.JWT_SECRET.get_secret_value(),
         algorithms=[settings.JWT_ALGORITHM],
     )
-
-
-print(hash_password('AcOS4sO1a-ep'))

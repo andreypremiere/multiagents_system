@@ -10,8 +10,6 @@ from claude_agent_sdk import (
     TextBlock, UserMessage,
 )
 
-api_key = "example"
-
 # Загружаем .env из директории Python-файла
 from dotenv import load_dotenv
 
@@ -31,22 +29,22 @@ claude_options = ClaudeAgentOptions(
     disallowed_tools=['Bash', 'PowerShell'],
     # Продолжать сессию
     continue_conversation=False,
-    # идентификатор сессии для возобновления
-    resume='e3bba005-a95d-4375-9570-b8931fc7b8bc',
+    # # идентификатор сессии для возобновления
+    resume='dee91e8c-b455-4704-82a6-bb855a5faccb',
     # session_id='e3bba005-a95d-4375-9570-b8931fc7b8bc',
     # количество агентских шагов
-    max_turns=20,
+    # max_turns=20,
     max_budget_usd=1,
     model='claude-haiku-5-5',
     # структурированный ответ
     output_format=None,
-    cwd=r'E:\my_project',
+    cwd=r'E:\multiagents_system',
     add_dirs=[],
     # Программно определенные агенты
     agents=None,
-    env={
-        "ANTHROPIC_API_KEY": api_key,
-    },
+    # env={
+    #     "ANTHROPIC_API_KEY": api_key,
+    # },
 )
 
 
@@ -62,7 +60,18 @@ async def main():
         return
 
     # Первое сообщение
-    prompt = "Ты помнишь наш диалог? Добавь в наш файлик utils еще какую-нибудь функцию. Очень простую, просто нужно для проверки."
+    prompt = """1. Согласен 
+    2. пока оставить моки, потом отдельной задачей будем делать чат. 
+    3. как лучше будет, делай по аналогии других уже готовых апи. 
+    4. давай б. 
+    5. оставь пока обычные строки без валидации. 
+    6. удали с фронта, сейчас ориентуремся на бекенд. 
+    7. да, пока не нужно это делать, потом также отдельной задачей. 
+    8. Таблицы уже необходимые все созданы, не нужны никакие миграции. 
+    9. да, можно удалить. 
+    Приступай к реализации"""
+
+
 
     print(f"You: {prompt}\n")
 

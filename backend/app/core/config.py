@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     JWT_ACCESS_TOKEN_MINUTES: int = 15
 
+    # Ключ Fernet для шифрования секретов провайдеров
+    CREDENTIALS_ENCRYPTION_KEY: SecretStr
+
     COOKIE_SECURE: bool = False
     COOKIE_NAME: str = "access_token"
     COOKIE_SAMESITE: Literal["lax", "strict", "none"] = "lax"

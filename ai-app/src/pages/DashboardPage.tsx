@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 
+import { chatApi } from '../api/chatApi';
+import { optionsApi } from '../api/optionsApi';
+import { projectApi } from '../api/projectApi';
 import { workspaceApi } from '../api/workspaceApi';
 import { useAuth } from '../context/AuthContext';
+import type { OptionsData } from '../models/options';
 import type {
   AgentActivityStep,
   ChatSession,
-  ProjectEnvironment,
   ProjectItem,
 } from '../models/workspace';
 
@@ -18,6 +21,7 @@ type WorkspaceMode =
 export function DashboardPage() {
   const { logout, user } = useAuth();
 
+  const [options, setOptions] = useState<OptionsData | null>(null);
   const [projects, setProjects] = useState<ProjectItem[]>([]);
   const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({});
   const [mode, setMode] = useState<WorkspaceMode>({ kind: 'create-project' });
@@ -25,19 +29,18 @@ export function DashboardPage() {
 
   const [newProjectName, setNewProjectName] = useState('');
   const [newProjectDesc, setNewProjectDesc] = useState('');
+  const [newProjectWorkDir, setNewProjectWorkDir] = useState('');
   const [newProjectPrompt, setNewProjectPrompt] = useState(
     'Ты полезный технический ассистент.',
   );
-  const [newProjectModel, setNewProjectModel] = useState('claude-sonnet');
-  const [newProjectEnv, setNewProjectEnv] =
-    useState<ProjectEnvironment>('development');
+  const [newProjectPermissionMode, setNewProjectPermissionMode] = useState('default');
   const [isCreatingProject, setIsCreatingProject] = useState(false);
 
   const [editName, setEditName] = useState('');
   const [editDesc, setEditDesc] = useState('');
+  const [editWorkDir, setEditWorkDir] = useState('');
   const [editPrompt, setEditPrompt] = useState('');
-  const [editModel, setEditModel] = useState('claude-sonnet');
-  const [editEnv, setEditEnv] = useState<ProjectEnvironment>('development');
+  const [editPermissionMode, setEditPermissionMode] = useState('default');
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [settingsSavedNotice, setSettingsSavedNotice] = useState(false);
 
@@ -48,25 +51,45 @@ export function DashboardPage() {
   useEffect(() => {
     let active = true;
     void (async () => {
-      const data = await workspaceApi.listProjects();
-      if (!active) {
-        return;
-      }
-      setProjects(data);
-      const initialExpanded: Record<string, boolean> = {};
-      for (const item of data) {
-        initialExpanded[item.id] = true;
-      }
-      setExpandedIds(initialExpanded);
+      try {
+        const [loadedOptions, loadedProjects] = await Promise.all([
+          optionsApi.get(),
+          projectApi.list(),
+        ]);
+        const chatsByProject = await Promise.all(
+          loadedProjects.map((project) => chatApi.listByProject(project.id)),
+        );
+        if (!active) {
+          return;
+        }
 
-      const firstProject = data[0];
-      const firstChat = firstProject?.chats[0];
-      if (firstProject && firstChat) {
-        setMode({ kind: 'chat', projectId: firstProject.id, chatId: firstChat.id });
-      } else if (firstProject) {
-        setMode({ kind: 'project', projectId: firstProject.id });
+        const data = loadedProjects.map((project, index) => ({
+          ...project,
+          chats: chatsByProject[index],
+        }));
+
+        setOptions(loadedOptions);
+        setNewProjectPermissionMode(loadedOptions.defaultPermissionMode);
+        setProjects(data);
+
+        const initialExpanded: Record<string, boolean> = {};
+        for (const item of data) {
+          initialExpanded[item.id] = true;
+        }
+        setExpandedIds(initialExpanded);
+
+        const firstProject = data[0];
+        const firstChat = firstProject?.chats[0];
+        if (firstProject && firstChat) {
+          setMode({ kind: 'chat', projectId: firstProject.id, chatId: firstChat.id });
+        } else if (firstProject) {
+          setMode({ kind: 'project', projectId: firstProject.id });
+        }
+      } finally {
+        if (active) {
+          setIsLoading(false);
+        }
       }
-      setIsLoading(false);
     })();
     return () => {
       active = false;
@@ -91,9 +114,9 @@ export function DashboardPage() {
     if (mode.kind === 'project' && activeProject) {
       setEditName(activeProject.name);
       setEditDesc(activeProject.description);
-      setEditPrompt(activeProject.settings.systemPrompt);
-      setEditModel(activeProject.settings.model);
-      setEditEnv(activeProject.settings.environment);
+      setEditWorkDir(activeProject.workingDirectory);
+      setEditPrompt(activeProject.systemPrompt);
+      setEditPermissionMode(activeProject.permissionMode);
       setSettingsSavedNotice(false);
     }
   }, [activeProject, mode.kind]);
@@ -117,7 +140,13 @@ export function DashboardPage() {
   }
 
   async function handleCreateChat(projectId: string) {
-    const createdChat = await workspaceApi.createChat(projectId);
+    if (!options) {
+      return;
+    }
+    const createdChat = await chatApi.create(projectId, {
+      model: options.defaultModel,
+      effort: options.defaultEffort,
+    });
     setProjects((prev) =>
       prev.map((proj) =>
         proj.id === projectId
@@ -132,27 +161,36 @@ export function DashboardPage() {
 
   async function handleCreateProjectSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!newProjectName.trim() || isCreatingProject) {
+    if (!newProjectName.trim() || !newProjectWorkDir.trim() || isCreatingProject) {
       return;
     }
     setIsCreatingProject(true);
     try {
-      const created = await workspaceApi.createProject({
+      const created = await projectApi.create({
         name: newProjectName,
         description: newProjectDesc,
-        settings: {
-          systemPrompt: newProjectPrompt,
-          model: newProjectModel,
-          environment: newProjectEnv,
-        },
+        workingDirectory: newProjectWorkDir,
+        systemPrompt: newProjectPrompt,
+        permissionMode: newProjectPermissionMode,
       });
-      setProjects((prev) => [...prev, created]);
+      setProjects((prev) => [...prev, { ...created, chats: [] }]);
       setExpandedIds((prev) => ({ ...prev, [created.id]: true }));
       setNewProjectName('');
       setNewProjectDesc('');
-      const initialChatId = created.chats[0]?.id;
-      if (initialChatId) {
-        setMode({ kind: 'chat', projectId: created.id, chatId: initialChatId });
+      setNewProjectWorkDir('');
+
+      // Сразу создаём первый чат, как и раньше.
+      if (options) {
+        const initialChat = await chatApi.create(created.id, {
+          model: options.defaultModel,
+          effort: options.defaultEffort,
+        });
+        setProjects((prev) =>
+          prev.map((proj) =>
+            proj.id === created.id ? { ...proj, chats: [initialChat] } : proj,
+          ),
+        );
+        setMode({ kind: 'chat', projectId: created.id, chatId: initialChat.id });
       } else {
         setMode({ kind: 'project', projectId: created.id });
       }
@@ -163,20 +201,18 @@ export function DashboardPage() {
 
   async function handleSaveProjectSettings(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!activeProject || !editName.trim() || isSavingSettings) {
+    if (!activeProject || !editName.trim() || !editWorkDir.trim() || isSavingSettings) {
       return;
     }
     setIsSavingSettings(true);
     setSettingsSavedNotice(false);
     try {
-      const updated = await workspaceApi.updateProjectSettings(activeProject.id, {
+      const updated = await projectApi.update(activeProject.id, {
         name: editName,
         description: editDesc,
-        settings: {
-          systemPrompt: editPrompt,
-          model: editModel,
-          environment: editEnv,
-        },
+        workingDirectory: editWorkDir,
+        systemPrompt: editPrompt,
+        permissionMode: editPermissionMode,
       });
       setProjects((prev) =>
         prev.map((proj) =>
@@ -185,7 +221,9 @@ export function DashboardPage() {
                 ...proj,
                 name: updated.name,
                 description: updated.description,
-                settings: updated.settings,
+                workingDirectory: updated.workingDirectory,
+                systemPrompt: updated.systemPrompt,
+                permissionMode: updated.permissionMode,
               }
             : proj,
         ),
@@ -213,7 +251,7 @@ export function DashboardPage() {
     try {
       const { userMessage, assistantMessage } = await workspaceApi.sendMessage(
         activeProject,
-        activeChat.id,
+        activeChat,
         text,
       );
 
@@ -251,6 +289,8 @@ export function DashboardPage() {
         .slice()
         .reverse()
         .find((m) => m.role === 'assistant' && m.activities?.length)?.activities ?? [];
+
+  const permissionModes = options?.permissionModes ?? [];
 
   return (
     <div className="min-h-screen bg-zinc-50 text-zinc-900 flex flex-col">
@@ -390,7 +430,7 @@ export function DashboardPage() {
                   Новый проект
                 </h2>
                 <p className="text-xs text-zinc-500 mt-1">
-                  Задайте название, базовые параметры модели и окружение.
+                  Задайте название, рабочую директорию и режим разрешений.
                 </p>
               </div>
 
@@ -420,30 +460,29 @@ export function DashboardPage() {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <label className="flex flex-col gap-1.5 text-xs font-medium text-zinc-700">
-                    Модель
-                    <select
-                      value={newProjectModel}
-                      onChange={(e) => setNewProjectModel(e.target.value)}
+                    Рабочая директория
+                    <input
+                      type="text"
+                      required
+                      value={newProjectWorkDir}
+                      onChange={(e) => setNewProjectWorkDir(e.target.value)}
+                      placeholder="/workspace/my-project"
                       className="rounded-xl border border-zinc-200 bg-zinc-50/60 px-3.5 py-2 text-sm text-zinc-900 outline-none transition-colors focus:border-[#722323] focus:bg-white"
-                    >
-                      <option value="claude-sonnet">claude-sonnet</option>
-                      <option value="claude-opus">claude-opus</option>
-                      <option value="claude-haiku">claude-haiku</option>
-                    </select>
+                    />
                   </label>
 
                   <label className="flex flex-col gap-1.5 text-xs font-medium text-zinc-700">
-                    Окружение
+                    Режим разрешений
                     <select
-                      value={newProjectEnv}
-                      onChange={(e) =>
-                        setNewProjectEnv(e.target.value as ProjectEnvironment)
-                      }
+                      value={newProjectPermissionMode}
+                      onChange={(e) => setNewProjectPermissionMode(e.target.value)}
                       className="rounded-xl border border-zinc-200 bg-zinc-50/60 px-3.5 py-2 text-sm text-zinc-900 outline-none transition-colors focus:border-[#722323] focus:bg-white"
                     >
-                      <option value="development">development</option>
-                      <option value="staging">staging</option>
-                      <option value="production">production</option>
+                      {permissionModes.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
                     </select>
                   </label>
                 </div>
@@ -515,30 +554,28 @@ export function DashboardPage() {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <label className="flex flex-col gap-1.5 text-xs font-medium text-zinc-700">
-                    Модель
-                    <select
-                      value={editModel}
-                      onChange={(e) => setEditModel(e.target.value)}
+                    Рабочая директория
+                    <input
+                      type="text"
+                      required
+                      value={editWorkDir}
+                      onChange={(e) => setEditWorkDir(e.target.value)}
                       className="rounded-xl border border-zinc-200 bg-zinc-50/60 px-3.5 py-2 text-sm text-zinc-900 outline-none transition-colors focus:border-[#722323] focus:bg-white"
-                    >
-                      <option value="claude-sonnet">claude-sonnet</option>
-                      <option value="claude-opus">claude-opus</option>
-                      <option value="claude-haiku">claude-haiku</option>
-                    </select>
+                    />
                   </label>
 
                   <label className="flex flex-col gap-1.5 text-xs font-medium text-zinc-700">
-                    Окружение
+                    Режим разрешений
                     <select
-                      value={editEnv}
-                      onChange={(e) =>
-                        setEditEnv(e.target.value as ProjectEnvironment)
-                      }
+                      value={editPermissionMode}
+                      onChange={(e) => setEditPermissionMode(e.target.value)}
                       className="rounded-xl border border-zinc-200 bg-zinc-50/60 px-3.5 py-2 text-sm text-zinc-900 outline-none transition-colors focus:border-[#722323] focus:bg-white"
                     >
-                      <option value="development">development</option>
-                      <option value="staging">staging</option>
-                      <option value="production">production</option>
+                      {permissionModes.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
                     </select>
                   </label>
                 </div>
@@ -582,7 +619,7 @@ export function DashboardPage() {
                       {activeProject.name}
                     </button>
                     <span>/</span>
-                    <span>{activeProject.settings.model}</span>
+                    <span>{activeChat.model}</span>
                   </div>
                   <h2 className="text-base font-semibold text-zinc-900 mt-0.5">
                     {activeChat.title}

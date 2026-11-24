@@ -1,6 +1,7 @@
 from claude_agent_sdk import list_sessions, delete_session, get_session_messages
 
-sessions = list_sessions()
+# sessions = list_sessions()
+print(get_session_messages('dee91e8c-b455-4704-82a6-bb855a5faccb'))
 
 # delete_session(session_id='a3ef4515-9e33-44cf-aee4-49389c727240')
 # delete_session(session_id='65a9b0ba-69b0-413d-a9f8-7b025e6c4796')
@@ -12,12 +13,12 @@ sessions = list_sessions()
 
 
 
-for session in sessions:
-    print("Session ID:", session.session_id)
-    print("Project:", session.cwd)
-    print("Summary:", session.summary)
-    print("Branch:", session.git_branch)
-    print("Last modified:", session.last_modified)
-    print("-" * 50)
+# for session in sessions:
+#     print("Session ID:", session.session_id)
+#     print("Project:", session.cwd)
+#     print("Summary:", session.summary)
+#     print("Branch:", session.git_branch)
+#     print("Last modified:", session.last_modified)
+#     print("-" * 50)
 
 
